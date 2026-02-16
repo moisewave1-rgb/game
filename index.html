@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#000000">
+    <title>Vivid Flux : Worlds Edition (Remastered)</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <style>
+      body {
+        font-family: 'Fredoka', sans-serif;
+        overflow: hidden;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        background-color: #000;
+      }
+      @keyframes popIn {
+        from { transform: scale(0.9); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+      }
+      .animate-pop-in {
+        animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      }
+      @keyframes gradientMove {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+      }
+      .animate-gradient {
+          background-size: 200% 200%;
+          animation: gradientMove 6s ease infinite;
+      }
+      @keyframes floatUp {
+          0% { transform: translateY(0px); opacity: 0; }
+          20% { opacity: 1; }
+          100% { transform: translateY(-20px); opacity: 1; }
+      }
+      .animate-float {
+          animation: floatUp 1s ease-out forwards;
+      }
+      @keyframes pulseGold {
+          0% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.7); transform: scale(1); }
+          70% { box-shadow: 0 0 0 10px rgba(250, 204, 21, 0); transform: scale(1.05); }
+          100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0); transform: scale(1); }
+      }
+      .animate-reward {
+          animation: pulseGold 2s infinite;
+      }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script>
+        // Service Worker (inchangé pour le mode hors ligne)
+        if ('serviceWorker' in navigator) {
+            const swContent = `
+                self.addEventListener('install', (e) => e.waitUntil(caches.open('vivid-flux-v2').then((c) => c.addAll([]))));
+                self.addEventListener('fetch', (e) => e.respondWith(fetch(e.request).catch(() => caches.match(e.request))));
+            `;
+            const blob = new Blob([swContent], {type: 'text/javascript'});
+            navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
+        }
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        /* =========================================
+           MODULES DES MONDES
+           ========================================= */
+
+        const WORLD_NORMAL = {
+            id: 'normal',
+            name: "Normal",
+            price: 0,
+            desc: "L'expérience classique.",
+            colors: { bgBase: 0, bgSat: 70, bgLight: 90 },
+            particles: { type: 'none', count: 0 },
+            physics: { shakeChance: 0, speedMod: 1.0, friction: 1.0 }
+        };
+
+        const WORLD_VOLCANIC = {
+            id: 'volcanic',
+            name: "Volcanique",
+            price: 1500,
+            desc: "Rochers et tremblements.",
+            colors: { bgBase: 10, bgSat: 80, bgLight: 15 }, // Plus sombre
+            particles: { type: 'ember', count: 4, color: '#FF4500' },
+            physics: { shakeChance: 0.02, speedMod: 1.15, friction: 1.0 }
+        };
+
+        const WORLD_WINTER = {
+            id: 'winter',
+            name: "Hivernal",
+            price: 800,
+            desc: "Glace glissante.",
+            colors: { bgBase: 200, bgSat: 60, bgLight: 95 },
+            particles: { type: 'snow', count: 3, color: '#FFFFFF' },
+            physics: { shakeChance: 0, speedMod: 0.9, friction: 0.96 } // Effet patinoire
+        };
+
+        const WORLD_AQUATIC = {
+            id: 'aquatic',
+            name: "Aquatique",
+            price: 2500,
+            desc: "Abysses et bulles.",
+            colors: { bgBase: 220, bgSat: 90, bgLight: 10 },
+            particles: { type: 'bubble', count: 2, color: 'rgba(255,255,255,0.2)' },
+            physics: { shakeChance: 0, speedMod: 0.85, friction: 1.0 }
+        };
+
+        const WORLDS = [WORLD_NORMAL, WORLD_WINTER, WORLD_VOLCANIC, WORLD_AQUATIC];
+
+        // --- CONSTANTS ITEMS ---
+
+        const SKINS = [
+            { id: 0, name: "Basique", color: "#444444", price: 0, power: "none", desc: "Aucun bonus" },
+            { id: 1, name: "Vif", color: "#FF0055", price: 100, power: "speed", desc: "+20% Vitesse" },
+            { id: 2, name: "Chance", color: "#00E676", price: 250, power: "greed", desc: "Étoiles x2" },
+            { id: 3, name: "Aimant", color: "#2979FF", price: 500, power: "magnet", desc: "Portée +50%" },
+            { id: 4, name: "Titan", color: "#D500F9", price: 1000, power: "shield", desc: "1 Bouclier / jeu" },
+            { id: 5, name: "Lumière", color: "#FFEA00", price: 2000, power: "score", desc: "Score rapide" }
+        ];
+
+        const TRAILS = [
+            { id: 0, name: "Aucune", type: "none", color: "transparent", price: 0 },
+            { id: 1, name: "Fumée", type: "dust", color: "#BDBDBD", price: 150 },
+            { id: 2, name: "Néon", type: "solid", color: "#00E5FF", price: 300 },
+            { id: 3, name: "Étincelles", type: "sparkle", color: "#FFD600", price: 600 },
+            { id: 4, name: "Feu", type: "fire", color: "#FF3D00", price: 1000 },
+            { id: 5, name: "Arc-en-ciel", type: "rainbow", color: "rainbow", price: 2000 },
+        ];
+
+        // --- GAME ENGINE LOGIC ---
+
+        const normalizeAngle = (a) => {
+            a = a % (Math.PI * 2);
+            if (a < 0) a += Math.PI * 2;
+            return a;
+        };
+
+        const isAngleBetween = (target, start, end) => {
+            target = normalizeAngle(target);
+            start = normalizeAngle(start);
+            end = normalizeAngle(end);
+            if (start < end) return target >= start && target <= end;
+            return target >= start || target <= end;
+        };
+
+        class GameEngine {
+            constructor(canvas, state, callbacks) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d', { alpha: false });
+                this.state = state;
+                this.onGameOver = callbacks.onGameOver;
+                this.onScoreUpdate = callbacks.onScoreUpdate;
+                this.onCoinUpdate = callbacks.onCoinUpdate;
+                this.onBgUpdate = callbacks.onBgUpdate;
+
+                this.width = 0;
+                this.height = 0;
+                this.center = { x: 0, y: 0 };
+                this.radius = 120;
+                
+                this.currentWorld = WORLDS.find(w => w.id === state.selectedWorld) || WORLD_NORMAL;
+                this.bgHue = this.currentWorld.colors.bgBase;
+
+                this.animationId = 0;
+                this.audioCtx = null;
+
+                // Ajout de currentSpeed pour la physique de glace
+                this.player = { angle: 0, dir: 1, size: 15, speed: 0.055, currentSpeed: 0, shield: false };
+                this.obstacles = [];
+                this.pickups = [];
+                this.particles = [];
+                this.trailParticles = [];
+                this.ambientParticles = [];
+                
+                this.active = false;
+                this.score = 0;
+                this.sessionCoins = 0;
+                this.frame = 0;
+                this.shake = 0;
+                this.currentPower = "none";
+                this.currentTrail = TRAILS[0];
+                this.currentSkin = SKINS[0];
+
+                this.resize();
+                
+                // On force l'initialisation des particules selon le monde actuel
+                this.initAmbientParticles();
+
+                window.addEventListener('resize', () => this.resize());
+            }
+
+            updateState(newState) {
+                this.state = newState;
+                if (this.state.selectedWorld && this.state.selectedWorld !== this.currentWorld.id) {
+                    this.currentWorld = WORLDS.find(w => w.id === this.state.selectedWorld) || WORLD_NORMAL;
+                    this.bgHue = this.currentWorld.colors.bgBase;
+                    this.initAmbientParticles();
+                }
+            }
+
+            initAudio() {
+                if (!this.audioCtx && typeof window !== 'undefined') {
+                    try {
+                        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    } catch (e) {}
+                }
+                if (this.audioCtx && this.audioCtx.state === 'suspended') {
+                    this.audioCtx.resume();
+                }
+            }
+
+            playClickSound() {
+                if (!this.state.settings.shake) return; 
+                this.initAudio();
+                if (!this.audioCtx) return;
+                try {
+                    const osc = this.audioCtx.createOscillator();
+                    const gain = this.audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(this.audioCtx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(400, this.audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(600, this.audioCtx.currentTime + 0.1);
+                    gain.gain.setValueAtTime(0.1, this.audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.15);
+                    osc.start();
+                    osc.stop(this.audioCtx.currentTime + 0.15);
+                } catch(e) {}
+            }
+
+            resize() {
+                this.width = this.canvas.width = window.innerWidth;
+                this.height = this.canvas.height = window.innerHeight;
+                this.center.x = this.width / 2;
+                this.center.y = this.height / 2;
+                
+                // FIX MOBILE: Taille du cercle adaptée pour ne pas être caché par l'UI
+                const minDim = Math.min(this.width, this.height);
+                if (this.width < 768) { // Mobile
+                    this.radius = minDim * 0.32; 
+                } else {
+                    this.radius = minDim * 0.25;
+                }
+            }
+
+            initAmbientParticles() {
+                this.ambientParticles = [];
+                // Générer plus de particules initiales pour que l'écran soit déjà vivant
+                const count = this.currentWorld.id === 'normal' ? 0 : 80;
+                for(let i=0; i<count; i++) {
+                   this.spawnAmbientParticle(true);
+                }
+            }
+
+            spawnAmbientParticle(randomY = false) {
+                if (this.currentWorld.particles.type === 'none') return;
+                
+                const type = this.currentWorld.particles.type;
+                const x = Math.random() * this.width;
+                
+                let y;
+                if (randomY) {
+                    y = Math.random() * this.height;
+                } else {
+                    // Spawn en haut pour la neige, en bas pour bulles/braises
+                    y = (type === 'snow') ? -10 : this.height + 10;
+                }
+                
+                this.ambientParticles.push({
+                    x: x,
+                    y: y,
+                    size: Math.random() * 4 + 2, // Particules plus grosses
+                    speed: Math.random() * 3 + 1,
+                    type: type,
+                    life: 1.0,
+                    wobble: Math.random() * Math.PI * 2
+                });
+            }
+
+            startIdle() {
+                this.active = false;
+                if (!this.animationId) this.loop();
+            }
+
+            start(tempSkin, tempTrail, tempWorld) {
+                this.stop(); 
+                this.initAudio();
+                this.active = true;
+                this.score = 0;
+                this.sessionCoins = 0;
+                this.frame = 0;
+                
+                const equippedSkinId = this.state.equippedSkin;
+                const equippedTrailId = this.state.equippedTrail;
+
+                this.currentSkin = tempSkin || SKINS.find(s => s.id === equippedSkinId) || SKINS[0];
+                this.currentTrail = tempTrail || TRAILS.find(t => t.id === equippedTrailId) || TRAILS[0];
+                
+                // Priorité au monde temporaire (test) sinon celui équipé
+                this.currentWorld = tempWorld || WORLDS.find(w => w.id === this.state.selectedWorld) || WORLD_NORMAL;
+                
+                // Mise à jour immédiate de l'ambiance si on change de monde (test)
+                this.bgHue = this.currentWorld.colors.bgBase;
+                this.initAmbientParticles();
+
+                this.currentPower = this.currentSkin.power;
+
+                this.obstacles = [];
+                this.pickups = [];
+                this.particles = [];
+                this.trailParticles = [];
+                this.player.angle = 0;
+                this.player.dir = 1;
+                
+                let baseSpeed = (this.currentPower === 'speed') ? 0.08 : 0.06;
+                this.player.speed = baseSpeed * this.currentWorld.physics.speedMod;
+                this.player.currentSpeed = this.player.speed;
+                
+                this.player.shield = (this.currentPower === 'shield');
+
+                this.onScoreUpdate(0);
+                this.onCoinUpdate(0);
+                this.spawnPickup();
+                this.loop();
+            }
+
+            revive() {
+                if (this.active) return;
+                
+                this.active = true;
+                this.player.dir *= -1;
+                this.player.shield = true;
+                
+                const safeZone = this.radius + 300;
+                this.obstacles.forEach(obs => {
+                     if (obs.dist < safeZone) obs.dist = safeZone + (Math.random() * 200);
+                     obs.opacity = 0; // Reset opacity pour fondu
+                });
+
+                if (!this.animationId) {
+                    this.loop();
+                }
+                
+                setTimeout(() => {
+                    if (this.currentPower !== 'shield') this.player.shield = false;
+                }, 2000);
+            }
+
+            stop() {
+                this.active = false;
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = 0;
+                }
+            }
+
+            tap() {
+                if (!this.active) return;
+                this.player.dir *= -1;
+                this.spawnParticles(
+                    this.center.x + Math.cos(this.player.angle) * this.radius,
+                    this.center.y + Math.sin(this.player.angle) * this.radius,
+                    3, this.currentSkin.color
+                );
+                this.playClickSound();
+            }
+
+            spawnObstacle() {
+                const minGap = 0.75;
+                const speedFactor = Math.min(this.score * 0.006, 0.5);
+                const gapSize = Math.max(minGap, 1.5 - speedFactor); 
+                const startAngle = Math.random() * Math.PI * 2;
+                
+                // FIX SPAWN: Distance augmentée pour ne pas pop devant
+                const spawnDist = this.radius + 600; 
+                const rotSpeed = (Math.random() - 0.5) * 0.06;
+
+                let obsSpeed = Math.min(3.5 + (this.score * 0.06), 9) * this.currentWorld.physics.speedMod;
+                
+                // Génération des points pour le style Volcanique (rochers)
+                let shapePoints = [];
+                if (this.currentWorld.id === 'volcanic') {
+                    for(let k=0; k<5; k++) shapePoints.push(Math.random() * 10 - 5);
+                }
+
+                this.obstacles.push({
+                    startAngle: startAngle,
+                    endAngle: startAngle + (Math.PI * 2) - gapSize,
+                    dist: spawnDist,
+                    speed: obsSpeed,
+                    rotationSpeed: rotSpeed,
+                    passed: false,
+                    opacity: 0, // Nouveau: pour le fade-in
+                    shapePoints: shapePoints // Nouveau: pour le dessin custom
+                });
+            }
+
+            spawnPickup() {
+                let spawnAngle = this.player.angle + Math.PI + (Math.random() * Math.PI - Math.PI/2);
+                this.pickups.push({
+                    angle: spawnAngle % (Math.PI * 2),
+                    pulse: 0
+                });
+            }
+
+            spawnParticles(x, y, count, color) {
+                for(let i=0; i<count; i++) {
+                    this.particles.push({
+                        x: x, y: y,
+                        vx: (Math.random() - 0.5) * 8,
+                        vy: (Math.random() - 0.5) * 8,
+                        life: 1,
+                        color: color
+                    });
+                }
+            }
+
+            spawnTrail() {
+                if (this.currentTrail.type === 'none') return;
+                const x = this.center.x + Math.cos(this.player.angle) * this.radius;
+                const y = this.center.y + Math.sin(this.player.angle) * this.radius;
+                let color = this.currentTrail.color;
+                if (this.currentTrail.type === 'rainbow') color = `hsl(${this.frame % 360}, 100%, 50%)`;
+
+                this.trailParticles.push({
+                    x, y,
+                    life: 1.0,
+                    color: color,
+                    size: this.currentTrail.type === 'solid' ? 10 : (Math.random() * 5 + 2),
+                    type: this.currentTrail.type
+                });
+            }
+
+            update() {
+                this.frame++;
+
+                const wc = this.currentWorld.colors;
+                if (this.currentWorld.id === 'normal') {
+                    this.bgHue = (this.bgHue + 0.15) % 360; 
+                } else {
+                    // Ambiance statique ou pulsante selon le monde
+                    this.bgHue = wc.bgBase + Math.sin(this.frame * 0.02) * 5;
+                }
+                
+                const lightness = wc.bgLight + Math.sin(this.frame * 0.01) * 4; 
+                const saturation = wc.bgSat + Math.cos(this.frame * 0.02) * 5;
+                const bgColor = `hsl(${this.bgHue}, ${saturation}%, ${lightness}%)`;
+                this.onBgUpdate(bgColor);
+                
+                // Shake aléatoire (plus fort pour Volcanique)
+                if (this.currentWorld.physics.shakeChance > 0) {
+                    if (Math.random() < this.currentWorld.physics.shakeChance) {
+                        this.shake = this.currentWorld.id === 'volcanic' ? 8 : 4;
+                    }
+                }
+
+                // Plus de particules d'ambiance
+                const spawnRate = this.currentWorld.id === 'normal' ? 0 : (this.currentWorld.id === 'winter' ? 2 : 4);
+                if (spawnRate > 0 && this.frame % spawnRate === 0) {
+                    this.spawnAmbientParticle(false);
+                }
+
+                this.ctx.fillStyle = bgColor;
+                this.ctx.fillRect(0, 0, this.width, this.height);
+
+                if (!this.active) {
+                    this.updateAmbientParticles();
+                    return;
+                }
+
+                // PHYSIQUE DU MOUVEMENT
+                // Si friction < 1 (Glace), on applique une inertie
+                let targetSpeed = this.player.speed * this.player.dir;
+                
+                if (this.currentWorld.physics.friction < 1.0) {
+                    // Interpolation (lerp) pour l'effet de glisse
+                    this.player.currentSpeed += (targetSpeed - this.player.currentSpeed) * 0.1;
+                } else {
+                    this.player.currentSpeed = targetSpeed;
+                }
+
+                this.player.angle += this.player.currentSpeed;
+                if (this.frame % 2 === 0) this.spawnTrail();
+
+                const lastObs = this.obstacles[this.obstacles.length - 1];
+                const minSafeDistance = 260;
+                
+                if (!lastObs || (lastObs.dist < (this.radius + 600 - minSafeDistance))) {
+                    const chance = 0.02 + (this.score * 0.001);
+                    if (Math.random() < chance) this.spawnObstacle();
+                }
+
+                for (let i = this.obstacles.length - 1; i >= 0; i--) {
+                    let obs = this.obstacles[i];
+                    obs.dist -= obs.speed;
+                    obs.startAngle += obs.rotationSpeed;
+                    obs.endAngle += obs.rotationSpeed;
+
+                    // Fade-in effect
+                    if (obs.opacity < 1) obs.opacity += 0.02;
+
+                    if (obs.dist < this.radius + 15 && obs.dist > this.radius - 15) {
+                        // Check collision
+                        if (isAngleBetween(this.player.angle, obs.startAngle, obs.endAngle)) {
+                            if (this.player.shield) {
+                                this.player.shield = false;
+                                this.shake = 10;
+                                this.spawnParticles(
+                                    this.center.x + Math.cos(this.player.angle) * this.radius,
+                                    this.center.y + Math.sin(this.player.angle) * this.radius,
+                                    15, '#00BFFF'
+                                );
+                                this.obstacles.splice(i, 1);
+                                continue;
+                            } else {
+                                if (this.active) {
+                                    this.die();
+                                    return; 
+                                }
+                            }
+                        } else if (!obs.passed) {
+                            obs.passed = true;
+                            this.score += (this.currentPower === 'score' && Math.random() > 0.8) ? 2 : 1;
+                            this.onScoreUpdate(this.score);
+                            if(this.state.settings.shake) this.shake = 3;
+                        }
+                    }
+                    if (obs.dist < 20) this.obstacles.splice(i, 1);
+                }
+
+                for (let i = this.pickups.length - 1; i >= 0; i--) {
+                    let p = this.pickups[i];
+                    p.pulse += 0.1;
+                    let diff = Math.abs(normalizeAngle(this.player.angle) - normalizeAngle(p.angle));
+                    if (diff > Math.PI) diff = (Math.PI * 2) - diff;
+                    let collectRange = (this.currentPower === 'magnet') ? 0.35 : 0.15;
+
+                    if (diff < collectRange) {
+                        let gain = (this.currentPower === 'greed') ? 2 : 1;
+                        this.sessionCoins += gain;
+                        this.onCoinUpdate(this.sessionCoins);
+                        this.spawnParticles(
+                            this.center.x + Math.cos(p.angle) * this.radius, 
+                            this.center.y + Math.sin(p.angle) * this.radius, 
+                            5, '#FFD700'
+                        );
+                        this.pickups.splice(i, 1);
+                        setTimeout(() => this.spawnPickup(), Math.random() * 2000 + 500);
+                    }
+                }
+
+                this.updateAmbientParticles();
+            }
+
+            updateAmbientParticles() {
+                 for (let i = this.ambientParticles.length - 1; i >= 0; i--) {
+                    let p = this.ambientParticles[i];
+                    p.wobble += 0.05;
+                    
+                    if (p.type === 'snow') {
+                        p.y += p.speed;
+                        p.x += Math.sin(p.wobble) * 0.5;
+                        // Loop
+                        if (p.y > this.height) { p.y = -10; p.x = Math.random() * this.width; }
+                    } else if (p.type === 'bubble' || p.type === 'ember') {
+                        p.y -= p.speed;
+                        p.x += Math.cos(p.wobble) * 0.5;
+                        // Loop
+                        if (p.y < -10) { p.y = this.height + 10; p.x = Math.random() * this.width; }
+                    }
+                }
+            }
+
+            draw() {
+                let sx = 0, sy = 0;
+                if (this.shake > 0) {
+                    sx = (Math.random() - 0.5) * this.shake;
+                    sy = (Math.random() - 0.5) * this.shake;
+                    this.shake *= 0.9;
+                }
+                
+                this.ctx.save();
+                this.ctx.translate(sx, sy);
+
+                // DESSIN DU FOND (Particules)
+                this.ambientParticles.forEach(p => {
+                    this.ctx.fillStyle = p.color;
+                    this.ctx.beginPath();
+                    if (p.type === 'ember') {
+                        // Braises carrées/tournantes
+                        this.ctx.rect(p.x, p.y, p.size, p.size);
+                    } else {
+                        // Neige/Bulles rondes
+                        this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    }
+                    this.ctx.fill();
+                });
+
+                // CENTRE
+                this.ctx.beginPath();
+                this.ctx.arc(this.center.x, this.center.y, 30, 0, Math.PI * 2);
+                this.ctx.fillStyle = "rgba(0,0,0,0.05)";
+                this.ctx.fill();
+
+                // CERCLE PRINCIPAL
+                this.ctx.beginPath();
+                this.ctx.arc(this.center.x, this.center.y, this.radius, 0, Math.PI * 2);
+                this.ctx.strokeStyle = "rgba(0,0,0,0.1)";
+                this.ctx.lineWidth = 2;
+                this.ctx.stroke();
+
+                // TRAINÉE
+                for (let i = this.trailParticles.length - 1; i >= 0; i--) {
+                    let p = this.trailParticles[i];
+                    p.life -= 0.02;
+                    if (p.type === 'fire') { p.y -= 1; p.x += (Math.random() -0.5)*2; }
+                    if (p.type === 'sparkle') { p.size *= 0.95; }
+                    
+                    if(p.life <= 0) {
+                        this.trailParticles.splice(i, 1);
+                    } else {
+                        this.ctx.globalAlpha = p.life * 0.6;
+                        this.ctx.fillStyle = p.color;
+                        this.ctx.beginPath();
+                        this.ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+                        this.ctx.fill();
+                        this.ctx.globalAlpha = 1;
+                    }
+                }
+
+                // PICKUPS
+                this.pickups.forEach(p => {
+                    let px = this.center.x + Math.cos(p.angle) * this.radius;
+                    let py = this.center.y + Math.sin(p.angle) * this.radius;
+                    let scale = 1 + Math.sin(p.pulse) * 0.2;
+                    
+                    this.ctx.save();
+                    this.ctx.translate(px, py);
+                    this.ctx.rotate(this.frame * 0.05);
+                    this.ctx.beginPath();
+                    // Forme étoile
+                    this.ctx.moveTo(0, -8*scale);
+                    this.ctx.lineTo(2*scale, -2*scale); this.ctx.lineTo(8*scale, 0);
+                    this.ctx.lineTo(2*scale, 2*scale); this.ctx.lineTo(0, 8*scale);
+                    this.ctx.lineTo(-2*scale, 2*scale); this.ctx.lineTo(-8*scale, 0);
+                    this.ctx.lineTo(-2*scale, -2*scale);
+                    this.ctx.fillStyle = "#FFD700";
+                    this.ctx.fill();
+                    this.ctx.restore();
+                });
+
+                // OBSTACLES (ENNEIIS)
+                this.obstacles.forEach(obs => {
+                    this.ctx.save();
+                    this.ctx.globalAlpha = Math.min(obs.opacity, 1); // Fade-in
+
+                    let obsHue;
+                    if (this.currentWorld.id === 'volcanic') obsHue = 10; 
+                    else if (this.currentWorld.id === 'aquatic') obsHue = 190;
+                    else if (this.currentWorld.id === 'winter') obsHue = 210;
+                    else obsHue = (this.bgHue + 180) % 360;
+                    
+                    this.ctx.strokeStyle = `hsl(${obsHue}, 85%, 65%)`;
+                    this.ctx.shadowColor = "rgba(0,0,0,0.1)";
+                    this.ctx.shadowBlur = 10;
+                    this.ctx.lineCap = "round";
+
+                    // DESSIN SPÉCIFIQUE PAR MONDE
+                    if (this.currentWorld.id === 'volcanic') {
+                        // Style Volcanique : Rochers pointus
+                        this.ctx.lineWidth = 18;
+                        this.ctx.strokeStyle = `hsl(10, 90%, 40%)`;
+                        this.ctx.beginPath();
+                        // On dessine l'arc principal mais un peu "haché" visuellement
+                        this.ctx.arc(this.center.x, this.center.y, obs.dist, obs.startAngle, obs.endAngle);
+                        this.ctx.setLineDash([10, 5]); // Effet fragmenté
+                        this.ctx.stroke();
+                        this.ctx.setLineDash([]); // Reset
+                    } else if (this.currentWorld.id === 'winter') {
+                        // Style Hivernal : Blocs de glace (carrés)
+                        this.ctx.lineWidth = 15;
+                        this.ctx.strokeStyle = `hsl(195, 80%, 85%)`; // Glace claire
+                        this.ctx.beginPath();
+                        this.ctx.arc(this.center.x, this.center.y, obs.dist, obs.startAngle, obs.endAngle);
+                        this.ctx.stroke();
+                        // Reflet blanc
+                        this.ctx.lineWidth = 4;
+                        this.ctx.strokeStyle = "white";
+                        this.ctx.stroke();
+                    } else if (this.currentWorld.id === 'aquatic') {
+                        // Style Aquatique : Bulles / Capsules rondes
+                        this.ctx.lineWidth = 14;
+                        this.ctx.strokeStyle = `hsla(190, 90%, 60%, 0.6)`;
+                        this.ctx.beginPath();
+                        this.ctx.arc(this.center.x, this.center.y, obs.dist, obs.startAngle, obs.endAngle);
+                        this.ctx.stroke();
+                        // Highlight
+                        this.ctx.lineWidth = 3;
+                        this.ctx.strokeStyle = "rgba(255,255,255,0.8)";
+                        this.ctx.beginPath();
+                        this.ctx.arc(this.center.x, this.center.y, obs.dist-4, obs.startAngle+0.1, obs.endAngle-0.1);
+                        this.ctx.stroke();
+                    } else {
+                        // Normal : Ligne Neon simple
+                        this.ctx.lineWidth = 15;
+                        this.ctx.beginPath();
+                        this.ctx.arc(this.center.x, this.center.y, obs.dist, obs.startAngle, obs.endAngle);
+                        this.ctx.stroke();
+                    }
+                    
+                    this.ctx.shadowBlur = 0;
+                    this.ctx.restore();
+                });
+
+                if (this.active) {
+                    const px = this.center.x + Math.cos(this.player.angle) * this.radius;
+                    const py = this.center.y + Math.sin(this.player.angle) * this.radius;
+                    
+                    if (this.player.shield) {
+                        this.ctx.beginPath();
+                        this.ctx.arc(px, py, 16 + Math.sin(this.frame * 0.2)*2, 0, Math.PI * 2);
+                        this.ctx.strokeStyle = "#00BFFF";
+                        this.ctx.lineWidth = 2;
+                        this.ctx.stroke();
+                    }
+
+                    this.ctx.fillStyle = this.currentSkin.color;
+                    this.ctx.beginPath();
+                    this.ctx.arc(px, py, 10, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    
+                    this.ctx.beginPath();
+                    this.ctx.arc(px - 3, py - 3, 3, 0, Math.PI * 2);
+                    this.ctx.fillStyle = "rgba(255,255,255,0.6)";
+                    this.ctx.fill();
+                }
+
+                // PARTICLES (EXPLOSIONS)
+                for (let i = this.particles.length - 1; i >= 0; i--) {
+                    let p = this.particles[i];
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.life -= 0.05;
+                    if(p.life <= 0) this.particles.splice(i, 1);
+                    else {
+                        this.ctx.globalAlpha = p.life;
+                        this.ctx.fillStyle = p.color;
+                        this.ctx.beginPath();
+                        this.ctx.arc(p.x, p.y, 4, 0, Math.PI*2);
+                        this.ctx.fill();
+                        this.ctx.globalAlpha = 1;
+                    }
+                }
+
+                this.ctx.restore();
+            }
+
+            die() {
+                if (!this.active) return;
+                this.active = false;
+                
+                if(this.state.settings.shake) this.shake = 20;
+                
+                this.spawnParticles(
+                    this.center.x + Math.cos(this.player.angle) * this.radius,
+                    this.center.y + Math.sin(this.player.angle) * this.radius,
+                    30, this.currentSkin.color
+                );
+
+                setTimeout(() => {
+                    this.onGameOver(this.score, this.sessionCoins);
+                }, 800);
+            }
+
+            loop() {
+                this.update();
+                this.draw();
+                this.animationId = requestAnimationFrame(this.loop.bind(this));
+            }
+        }
+
+        // --- REACT COMPONENTS ---
+
+        function SplashScreen({ onFinish }) {
+            return (
+                <div 
+                    onClick={onFinish}
+                    className="fixed inset-0 z-50 flex flex-col items-center justify-center cursor-pointer animate-gradient"
+                    style={{
+                        background: 'linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%)'
+                    }}
+                >
+                    <div className="animate-float flex flex-col items-center">
+                        <img 
+                            src="logo1.png" 
+                            alt="Logo" 
+                            className="w-48 h-auto mb-6 drop-shadow-lg"
+                            onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.nextSibling.style.display = 'block';
+                            }}
+                        />
+                        <div className="hidden text-6xl mb-4">✨</div>
+                        
+                        <h1 className="text-3xl font-black text-white drop-shadow-md tracking-wider uppercase mb-2">
+                            Made with
+                        </h1>
+                        <h2 className="text-5xl font-black text-white drop-shadow-xl tracking-tighter">
+                            Momoblark Engine
+                        </h2>
+                        <p className="mt-8 text-white/80 font-bold animate-pulse text-lg">
+                            Cliquer pour commencer
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        function App() {
+            const canvasRef = useRef(null);
+            const engineRef = useRef(null);
+            const audioRef = useRef(null);
+
+            const [gameState, setGameState] = useState(() => {
+                const saved = localStorage.getItem('vivid_save_v2'); 
+                return saved ? JSON.parse(saved) : {
+                    coins: 0,
+                    highscore: 0,
+                    ownedSkins: [0],
+                    ownedTrails: [0],
+                    ownedWorlds: ['normal'],
+                    selectedWorld: 'normal',
+                    equippedSkin: 0,
+                    equippedTrail: 0,
+                    lastDailyChallengeDate: null,
+                    settings: { shake: true, music: true, dark: false }
+                };
+            });
+
+            const [showSplash, setShowSplash] = useState(true);
+            const [screen, setScreen] = useState('menu');
+            const [currentScore, setCurrentScore] = useState(0);
+            const [sessionCoins, setSessionCoins] = useState(0);
+            const [shopTab, setShopTab] = useState('skins');
+            
+            // Nouveau système de test
+            const [isTrialRun, setIsTrialRun] = useState(false);
+            
+            const [dailyChallenge, setDailyChallenge] = useState(null);
+            const [sessionChallenge, setSessionChallenge] = useState(null);
+            const [challengesCompleted, setChallengesCompleted] = useState({daily: false, session: false});
+
+            useEffect(() => {
+                localStorage.setItem('vivid_save_v2', JSON.stringify(gameState));
+                if (gameState.settings.dark) document.documentElement.classList.add('dark');
+                else document.documentElement.classList.remove('dark');
+                
+                if (engineRef.current) engineRef.current.updateState(gameState);
+
+                if (audioRef.current) {
+                    if (gameState.settings.music) {
+                        if (!showSplash) audioRef.current.play().catch(e => console.log("Waiting for interaction"));
+                    } else audioRef.current.pause();
+                }
+            }, [gameState, showSplash]);
+
+            useEffect(() => {
+                const today = new Date().toDateString();
+                const seed = today.length + new Date().getDate(); 
+                const isCoins = seed % 2 === 0;
+                
+                const target = isCoins ? 20 + (seed % 15) : 60 + (seed % 40);
+                
+                setDailyChallenge({
+                    id: 'daily-' + today,
+                    description: isCoins ? `Collecter ${target} étoiles` : `Atteindre score ${target}`,
+                    target: target,
+                    type: isCoins ? 'coins' : 'score',
+                    reward: 100,
+                    completed: gameState.lastDailyChallengeDate === today
+                });
+            }, [gameState.lastDailyChallengeDate]);
+
+            useEffect(() => {
+                if (canvasRef.current && !engineRef.current) {
+                    engineRef.current = new GameEngine(
+                        canvasRef.current,
+                        gameState,
+                        {
+                            onGameOver: (score, coins) => handleGameOver(score, coins),
+                            onScoreUpdate: (s) => setCurrentScore(s),
+                            onCoinUpdate: (c) => setSessionCoins(c),
+                            onBgUpdate: (c) => {} 
+                        }
+                    );
+                    engineRef.current.startIdle(); 
+                }
+                return () => {
+                    if (engineRef.current) engineRef.current.stop();
+                };
+            }, []);
+
+            const handleSplashFinish = () => {
+                setShowSplash(false);
+                setScreen('menu');
+                if(audioRef.current && gameState.settings.music) {
+                    audioRef.current.play().catch(e => {});
+                }
+            };
+
+            const generateSessionChallenge = () => {
+                const types = ['score', 'coins'];
+                const type = types[Math.floor(Math.random() * types.length)];
+                const target = type === 'score' 
+                    ? Math.floor(Math.random() * 40) + 40
+                    : Math.floor(Math.random() * 15) + 10;
+                const reward = Math.floor(target * 1.5);
+                
+                setSessionChallenge({
+                    id: 'session-' + Date.now(),
+                    description: type === 'score' ? `Défi: Score ${target}` : `Défi: ${target} Étoiles`,
+                    target,
+                    type,
+                    reward,
+                    completed: false
+                });
+                setChallengesCompleted({daily: false, session: false});
+            };
+
+            // MODIFICATION: Logique de démarrage et de test
+            const handleStart = (trialSkin, trialTrail, trialWorld) => {
+                if (engineRef.current) {
+                    const isTrial = !!(trialSkin || trialTrail || trialWorld);
+                    setIsTrialRun(isTrial);
+                    
+                    setScreen('game');
+                    generateSessionChallenge();
+                    
+                    // On lance le jeu avec les éléments temporaires si fournis
+                    engineRef.current.start(trialSkin, trialTrail, trialWorld);
+                }
+            };
+
+            const handleContinue = () => {
+                if (gameState.coins >= 15 && engineRef.current) {
+                    setGameState(prev => ({...prev, coins: prev.coins - 15}));
+                    setScreen('game');
+                    engineRef.current.revive();
+                }
+            };
+
+            const handleGameOver = (score, coins) => {
+                // Si c'était un essai gratuit, on quitte directement sans sauvegarde
+                if (isTrialRun) {
+                    setIsTrialRun(false);
+                    setScreen('menu'); // Retour au menu principal
+                    alert("Fin de l'essai !");
+                    return;
+                }
+
+                let extraCoins = 0;
+                let newDailyDate = gameState.lastDailyChallengeDate;
+                let sessionDone = false;
+                let dailyDone = false;
+
+                if (sessionChallenge) {
+                    const val = sessionChallenge.type === 'score' ? score : coins;
+                    if (val >= sessionChallenge.target) {
+                        extraCoins += sessionChallenge.reward;
+                        sessionDone = true;
+                    }
+                }
+
+                if (dailyChallenge && !dailyChallenge.completed) {
+                    const val = dailyChallenge.type === 'score' ? score : coins;
+                    if (val >= dailyChallenge.target) {
+                        extraCoins += dailyChallenge.reward;
+                        newDailyDate = new Date().toDateString();
+                        dailyDone = true;
+                    }
+                }
+
+                setChallengesCompleted({ session: sessionDone, daily: dailyDone });
+
+                setGameState(prev => ({
+                    ...prev,
+                    coins: prev.coins + coins + extraCoins,
+                    highscore: Math.max(prev.highscore, score),
+                    lastDailyChallengeDate: newDailyDate
+                }));
+                
+                setScreen('gameover');
+            };
+
+            const handleTap = () => {
+                if (screen === 'game' && engineRef.current) {
+                    engineRef.current.tap();
+                }
+            };
+
+            const handleKeyDown = (e) => {
+                if (e.code === 'Space') {
+                    if (screen === 'game') handleTap();
+                    else if (screen === 'menu' || screen === 'gameover') handleStart();
+                }
+            };
+
+            const buyOrEquip = (item, type) => {
+                const list = type === 'skin' ? gameState.ownedSkins : gameState.ownedTrails;
+                const isOwned = list.includes(item.id);
+
+                if (isOwned) {
+                    setGameState(prev => ({
+                        ...prev,
+                        equippedSkin: type === 'skin' ? item.id : prev.equippedSkin,
+                        equippedTrail: type === 'trail' ? item.id : prev.equippedTrail
+                    }));
+                } else {
+                    if (gameState.coins >= item.price) {
+                        setGameState(prev => ({
+                            ...prev,
+                            coins: prev.coins - item.price,
+                            ownedSkins: type === 'skin' ? [...prev.ownedSkins, item.id] : prev.ownedSkins,
+                            ownedTrails: type === 'trail' ? [...prev.ownedTrails, item.id] : prev.ownedTrails,
+                            equippedSkin: type === 'skin' ? item.id : prev.equippedSkin,
+                            equippedTrail: type === 'trail' ? item.id : prev.equippedTrail
+                        }));
+                    }
+                }
+            };
+            
+            const buyOrSelectWorld = (world) => {
+                const isOwned = gameState.ownedWorlds.includes(world.id);
+                if (isOwned) {
+                    setGameState(prev => ({ ...prev, selectedWorld: world.id }));
+                } else {
+                    if (gameState.coins >= world.price) {
+                        setGameState(prev => ({
+                            ...prev,
+                            coins: prev.coins - world.price,
+                            ownedWorlds: [...prev.ownedWorlds, world.id],
+                            selectedWorld: world.id
+                        }));
+                    }
+                }
+            };
+
+            // TEST D'UN ARTICLE (1 PARTIE)
+            const startTrial = (item, type) => {
+                const s = type === 'skin' ? item : SKINS.find(sk => sk.id === gameState.equippedSkin);
+                const t = type === 'trail' ? item : TRAILS.find(tr => tr.id === gameState.equippedTrail);
+                handleStart(s, t);
+            };
+
+            // TEST D'UN MONDE (1 PARTIE)
+            const startWorldTrial = (world) => {
+                handleStart(null, null, world);
+            };
+
+            const renderShopItem = (item, type) => {
+                const isOwned = (type === 'skin' ? gameState.ownedSkins : gameState.ownedTrails).includes(item.id);
+                const isEquipped = (type === 'skin' ? gameState.equippedSkin : gameState.equippedTrail) === item.id;
+
+                return (
+                    <div key={item.id} className={`
+                        relative flex flex-col items-center p-3 rounded-2xl border-2 transition-all cursor-pointer
+                        ${isEquipped ? 'bg-pink-50 border-pink-500' : isOwned ? 'bg-white border-transparent hover:border-gray-200' : 'bg-gray-100 border-transparent'}
+                    `} onClick={() => buyOrEquip(item, type)}>
+                        <div 
+                            className="w-8 h-8 rounded-full shadow-sm mb-2" 
+                            style={{ background: item.color === 'rainbow' ? 'linear-gradient(45deg, red, orange, yellow, green, blue, indigo, violet)' : item.color }}
+                        />
+                        <span className="font-bold text-sm text-gray-800">{item.name}</span>
+                        {item.power && <span className="text-[10px] uppercase text-pink-600 font-bold mb-1">{item.desc}</span>}
+                        <div className="text-xs font-bold text-gray-500 mt-1">
+                            {isOwned ? (isEquipped ? 'ÉQUIPÉ' : 'POSSÉDÉ') : `${item.price} ★`}
+                        </div>
+                        {!isOwned && (
+                            <button className="mt-2 text-[10px] bg-gray-800 text-white px-2 py-1 rounded-full hover:bg-black"
+                                onClick={(e) => { e.stopPropagation(); startTrial(item, type); }}>
+                                TESTER
+                            </button>
+                        )}
+                    </div>
+                );
+            };
+
+            const renderWorldCard = (world) => {
+                const isOwned = gameState.ownedWorlds.includes(world.id);
+                const isSelected = gameState.selectedWorld === world.id;
+                
+                const c = world.colors;
+                const bgPreview = `hsl(${c.bgBase}, ${c.bgSat}%, 50%)`;
+
+                return (
+                    <div key={world.id} className={`
+                        relative flex items-center p-4 rounded-2xl border-2 transition-all cursor-pointer mb-3
+                        ${isSelected ? 'bg-white border-pink-500 shadow-md' : 'bg-white/80 border-transparent hover:bg-white'}
+                    `} onClick={() => buyOrSelectWorld(world)}>
+                        <div className="w-16 h-16 rounded-xl mr-4 shadow-inner flex items-center justify-center text-2xl" style={{backgroundColor: bgPreview}}>
+                            {world.id === 'volcanic' && '🌋'}
+                            {world.id === 'winter' && '❄️'}
+                            {world.id === 'aquatic' && '💧'}
+                            {world.id === 'normal' && '✨'}
+                        </div>
+                        <div className="flex-1 text-left">
+                            <h3 className="font-bold text-lg text-gray-800">{world.name}</h3>
+                            <p className="text-xs text-gray-500">{world.desc}</p>
+                            <div className="mt-1 font-bold text-pink-600 text-sm">
+                                {isOwned ? (isSelected ? 'ACTIF' : 'CHOISIR') : `${world.price} ★`}
+                            </div>
+                        </div>
+                        {!isOwned && (
+                            <div className="ml-2">
+                                <button className="text-[10px] bg-gray-800 text-white px-3 py-2 rounded-full hover:bg-black font-bold"
+                                    onClick={(e) => { e.stopPropagation(); startWorldTrial(world); }}>
+                                    TEST
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                );
+            };
+
+            const isDark = gameState.settings.dark;
+            const cardBg = isDark ? 'bg-gray-800 text-white' : 'bg-white/85 text-gray-800';
+
+            return (
+                <>
+                <audio ref={audioRef} loop>
+                    <source src="rap-beat-beats-music-452431.mp3" type="audio/mp3" />
+                </audio>
+
+                {showSplash && <SplashScreen onFinish={handleSplashFinish} />}
+
+                <div 
+                    className="w-full h-screen overflow-hidden relative font-fredoka transition-colors duration-1000 outline-none"
+                    onMouseDown={handleTap}
+                    onTouchStart={(e) => { if(screen === 'game') e.preventDefault(); handleTap(); }}
+                    onKeyDown={handleKeyDown}
+                    tabIndex={0}
+                >
+                    <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full z-0 block" />
+
+                    {/* HUD */}
+                    <div className={`absolute top-6 w-full flex justify-between px-8 z-10 pointer-events-none ${isDark ? 'text-white' : 'text-gray-800'}`}>
+                        <div className="flex flex-col items-start">
+                            <div className="text-4xl font-bold drop-shadow-sm">{screen === 'game' ? currentScore : ''}</div>
+                            {screen === 'game' && sessionChallenge && (
+                                <div className="text-xs font-bold bg-white/50 px-2 py-1 rounded-full mt-2 text-gray-800">
+                                    {sessionChallenge.description} ({sessionChallenge.reward}★)
+                                </div>
+                            )}
+                            {isTrialRun && screen === 'game' && (
+                                <div className="text-xs font-bold bg-red-500 text-white px-2 py-1 rounded-full mt-1 uppercase tracking-wider">
+                                    Mode Test
+                                </div>
+                            )}
+                        </div>
+                        <div className={`text-2xl font-bold text-yellow-500 drop-shadow-sm ${screen === 'game' ? 'opacity-100' : 'opacity-0'}`}>
+                            ★ {sessionCoins}
+                        </div>
+                    </div>
+
+                    <div className="absolute top-0 left-0 w-full h-full z-20 pointer-events-none flex items-center justify-center">
+                        
+                        {/* Main Menu */}
+                        {screen === 'menu' && !showSplash && (
+                            <div className={`pointer-events-auto p-8 rounded-3xl shadow-xl backdrop-blur-md w-11/12 max-w-sm text-center animate-pop-in ${cardBg}`}>
+                                <h1 className="text-6xl font-black mb-2 tracking-widest leading-none text-pink-500 uppercase">
+                                    Vivid<br/>Flux
+                                </h1>
+                                
+                                <div className="inline-block px-4 py-1 bg-yellow-400 text-yellow-900 rounded-full font-bold mb-4 shadow-sm">
+                                    ★ {gameState.coins}
+                                </div>
+                                
+                                {dailyChallenge && (
+                                    <div className={`mb-6 p-2 rounded-xl text-sm font-bold border-2 ${dailyChallenge.completed ? 'border-green-400 bg-green-50 text-green-700' : 'border-blue-400 bg-blue-50 text-blue-700'}`}>
+                                        <div className="uppercase text-[10px] mb-1 opacity-70">Défi du jour</div>
+                                        {dailyChallenge.completed ? "COMPLÉTÉ" : dailyChallenge.description}
+                                        {!dailyChallenge.completed && <span className="ml-1 text-yellow-600">+{dailyChallenge.reward}★</span>}
+                                    </div>
+                                )}
+
+                                <button onClick={() => handleStart()} className="w-full py-4 bg-gray-900 text-white text-xl font-bold rounded-full shadow-lg hover:transform hover:-translate-y-1 transition active:translate-y-0 mb-3">
+                                    JOUER
+                                </button>
+                                
+                                <button onClick={() => setScreen('worlds')} className="w-full py-3 mb-3 bg-indigo-600 text-white font-bold rounded-full shadow-lg hover:bg-indigo-700 transition">
+                                    MONDES 🌍
+                                </button>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button onClick={() => setScreen('shop')} className="py-3 border-2 border-gray-900 text-gray-900 font-bold rounded-full hover:bg-gray-100 dark:border-white dark:text-white dark:hover:text-gray-900">
+                                        BOUTIQUE
+                                    </button>
+                                    <button onClick={() => setScreen('settings')} className="py-3 border-2 border-gray-900 text-gray-900 font-bold rounded-full hover:bg-gray-100 dark:border-white dark:text-white dark:hover:text-gray-900">
+                                        OPTIONS
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* World Select Screen */}
+                        {screen === 'worlds' && (
+                            <div className={`pointer-events-auto p-6 rounded-3xl shadow-xl backdrop-blur-md w-11/12 max-w-sm flex flex-col h-[65vh] animate-pop-in ${cardBg}`}>
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-2xl font-bold">Mondes</h2>
+                                    <div className="px-3 py-1 bg-yellow-400 text-yellow-900 rounded-full font-bold text-sm">★ {gameState.coins}</div>
+                                </div>
+                                <div className="overflow-y-auto flex-1 pb-4">
+                                    {WORLDS.map(w => renderWorldCard(w))}
+                                </div>
+                                <button onClick={() => setScreen('menu')} className="mt-4 py-3 border-2 border-gray-400 font-bold rounded-full hover:bg-gray-100/50 dark:hover:text-gray-900">
+                                    RETOUR
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Shop */}
+                        {screen === 'shop' && (
+                            <div className={`pointer-events-auto p-6 rounded-3xl shadow-xl backdrop-blur-md w-11/12 max-w-sm flex flex-col h-[60vh] animate-pop-in ${cardBg}`}>
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-2xl font-bold">Collection</h2>
+                                    <div className="px-3 py-1 bg-yellow-400 text-yellow-900 rounded-full font-bold text-sm">★ {gameState.coins}</div>
+                                </div>
+                                <div className="flex mb-4 bg-gray-200 rounded-full p-1 dark:bg-gray-700">
+                                    <button 
+                                        className={`flex-1 py-1 rounded-full text-sm font-bold transition ${shopTab === 'skins' ? 'bg-white text-black shadow-sm' : 'text-gray-500'}`}
+                                        onClick={() => setShopTab('skins')}
+                                    >
+                                        SKINS
+                                    </button>
+                                    <button 
+                                        className={`flex-1 py-1 rounded-full text-sm font-bold transition ${shopTab === 'trails' ? 'bg-white text-black shadow-sm' : 'text-gray-500'}`}
+                                        onClick={() => setShopTab('trails')}
+                                    >
+                                        TRAINÉES
+                                    </button>
+                                </div>
+                                <div className="overflow-y-auto flex-1 grid grid-cols-2 gap-3 pb-4 content-start">
+                                    {shopTab === 'skins' 
+                                        ? SKINS.map(s => renderShopItem(s, 'skin'))
+                                        : TRAILS.map(t => renderShopItem(t, 'trail'))
+                                    }
+                                </div>
+                                <button onClick={() => setScreen('menu')} className="mt-4 py-3 border-2 border-gray-400 font-bold rounded-full hover:bg-gray-100/50 dark:hover:text-gray-900">
+                                    RETOUR
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Settings (Inchangé) */}
+                        {screen === 'settings' && (
+                            <div className={`pointer-events-auto p-8 rounded-3xl shadow-xl backdrop-blur-md w-11/12 max-w-sm animate-pop-in ${cardBg}`}>
+                                <h2 className="text-3xl font-bold mb-6 text-center">Options</h2>
+                                <div className="space-y-4 mb-8">
+                                    <div className="flex justify-between items-center text-lg font-semibold">
+                                        <span>Musique</span>
+                                        <input type="checkbox" checked={gameState.settings.music} onChange={() => setGameState(p => ({...p, settings: {...p.settings, music: !p.settings.music}}))} className="w-6 h-6 accent-pink-500"/>
+                                    </div>
+                                    <div className="flex justify-between items-center text-lg font-semibold">
+                                        <span>Vibrations / SFX</span>
+                                        <input type="checkbox" checked={gameState.settings.shake} onChange={() => setGameState(p => ({...p, settings: {...p.settings, shake: !p.settings.shake}}))} className="w-6 h-6 accent-pink-500"/>
+                                    </div>
+                                    <div className="flex justify-between items-center text-lg font-semibold">
+                                        <span>Mode Sombre</span>
+                                        <input type="checkbox" checked={gameState.settings.dark} onChange={() => setGameState(p => ({...p, settings: {...p.settings, dark: !p.settings.dark}}))} className="w-6 h-6 accent-pink-500"/>
+                                    </div>
+                                </div>
+                                <button onClick={() => setScreen('menu')} className="w-full py-3 border-2 border-gray-400 font-bold rounded-full hover:bg-gray-100/50 dark:hover:text-gray-900">
+                                    RETOUR
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Game Over (Inchangé) */}
+                        {screen === 'gameover' && (
+                            <div className={`pointer-events-auto p-8 rounded-3xl shadow-xl backdrop-blur-md w-11/12 max-w-sm text-center animate-pop-in ${cardBg}`}>
+                                <h2 className="text-5xl font-black text-pink-600 mb-2 tracking-wider">CRASH!</h2>
+                                <div className="text-6xl font-bold mb-2">{currentScore}</div>
+                                <div className="text-sm font-bold opacity-60 mb-4">MEILLEUR: {gameState.highscore}</div>
+                                
+                                <div className="space-y-2 mb-4">
+                                    {challengesCompleted.session && (
+                                        <div className="animate-reward flex items-center justify-center gap-2 text-green-600 font-bold text-sm bg-green-100 border border-green-300 rounded-lg py-2 px-3">
+                                            <span>🏆 Défi réussi !</span>
+                                            <span className="bg-green-600 text-white px-2 rounded-full">+{sessionChallenge?.reward}★</span>
+                                        </div>
+                                    )}
+                                    {challengesCompleted.daily && (
+                                        <div className="animate-reward flex items-center justify-center gap-2 text-blue-600 font-bold text-sm bg-blue-100 border border-blue-300 rounded-lg py-2 px-3">
+                                            <span>📅 Quotidien terminé !</span>
+                                            <span className="bg-blue-600 text-white px-2 rounded-full">+{dailyChallenge?.reward}★</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="inline-block px-4 py-2 bg-yellow-400 text-yellow-900 rounded-full font-bold mb-4 text-xl">
+                                    + {sessionCoins} ★
+                                </div>
+                                
+                                <button 
+                                    onClick={() => handleContinue()} 
+                                    disabled={gameState.coins < 15}
+                                    className={`w-full py-3 mb-3 text-lg font-bold rounded-full shadow-lg transition
+                                        ${gameState.coins >= 15 ? 'bg-pink-500 text-white hover:bg-pink-600' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}
+                                    `}
+                                >
+                                    CONTINUER (15 ★)
+                                </button>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button onClick={() => handleStart()} className="py-3 bg-gray-900 text-white font-bold rounded-full hover:bg-gray-800">
+                                        REJOUER
+                                    </button>
+                                    <button onClick={() => setScreen('menu')} className="py-3 border-2 border-gray-900 text-gray-900 font-bold rounded-full hover:bg-gray-100 dark:border-white dark:text-white dark:hover:text-gray-900">
+                                        MENU
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+                </>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
